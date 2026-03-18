@@ -1,7 +1,7 @@
 name: Dependabot Sentinel
 
 on:
-  pull_request:
+  pull_request_target:
     types: [opened, synchronize, reopened]
 
 # Only runs for dependabot PRs; everything else exits at the classify job.
