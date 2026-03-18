@@ -84,27 +84,37 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           BASE_BRANCH: ${{ github.event.pull_request.base.ref }}
         run: |
-          python3 - <<'EOF'
+          python3 -u - <<'EOF'
           import subprocess, json, time, sys, os
           repo = "${{ github.repository }}"
           sha = os.environ["HEAD_SHA"]
           base_branch = os.environ["BASE_BRANCH"]
 
-          # First: fetch the required status checks for this branch from protection rules.
-          # Only wait for checks that are REQUIRED — ignore optional / informational checks.
+          # Fetch required status checks from branch protection.
+          # Do NOT use --jq here: on a 404 (no protection configured) the jq filter
+          # may still emit output, so we parse the JSON ourselves and check returncode.
           req_result = subprocess.run(
               ["gh", "api",
-               f"/repos/{repo}/branches/{base_branch}/protection/required_status_checks",
-               "--jq", "[.contexts[] // empty]"],
+               f"/repos/{repo}/branches/{base_branch}/protection/required_status_checks"],
               capture_output=True, text=True, env={**os.environ}
           )
-          required_contexts = json.loads(req_result.stdout or "[]")
+          print(f"Branch protection API exit code: {req_result.returncode}", flush=True)
+          print(f"Branch protection API stdout: {req_result.stdout[:200]}", flush=True)
+
+          required_contexts = []
+          if req_result.returncode == 0 and req_result.stdout.strip():
+              try:
+                  protection = json.loads(req_result.stdout)
+                  if isinstance(protection, dict):
+                      required_contexts = protection.get("contexts") or []
+              except Exception as e:
+                  print(f"Could not parse branch protection response: {e}", flush=True)
 
           if not required_contexts:
-              print("No required status checks configured — proceeding to review.")
+              print("No required status checks configured — proceeding to review.", flush=True)
               sys.exit(0)
 
-          print(f"Waiting for required checks: {required_contexts}")
+          print(f"Waiting for required checks: {required_contexts}", flush=True)
 
           # Poll for up to 20 minutes
           deadline = time.time() + 1200
@@ -117,8 +127,7 @@ jobs:
               )
               checks = json.loads(result.stdout or "[]")
               if not checks:
-                  # Required checks haven't shown up yet; wait for them
-                  print("Required checks not yet queued, waiting...")
+                  print("Required checks not yet queued, waiting...", flush=True)
                   time.sleep(30)
                   continue
 
@@ -126,17 +135,17 @@ jobs:
               conclusions = [c.get("conclusion") for c in checks if c.get("conclusion")]
 
               if any(c in ["failure", "cancelled", "timed_out"] for c in conclusions):
-                  print(f"CI failed: {conclusions}")
+                  print(f"CI failed: {conclusions}", flush=True)
                   sys.exit(1)
 
               if all(s == "completed" for s in statuses):
-                  print("All required CI checks passed.")
+                  print("All required CI checks passed.", flush=True)
                   sys.exit(0)
 
-              print(f"Waiting... statuses: {set(statuses)}")
+              print(f"Waiting... statuses: {set(statuses)}", flush=True)
               time.sleep(30)
 
-          print("Timed out waiting for CI")
+          print("Timed out waiting for CI", flush=True)
           sys.exit(1)
           EOF
 
