@@ -94,7 +94,7 @@ jobs:
           while time.time() < deadline:
               result = subprocess.run(
                   ["gh", "api", f"/repos/{repo}/commits/{sha}/check-runs",
-                   "--jq", "[.check_runs[] | select(.name != \"Dependabot Sentinel\")]"],
+                   "--jq", "[.check_runs[] | select(.name | startswith(\"Dependabot Sentinel\") | not)]"],
                   capture_output=True, text=True, env={**os.environ}
               )
               checks = json.loads(result.stdout or "[]")
