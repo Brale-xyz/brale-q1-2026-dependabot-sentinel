@@ -135,7 +135,7 @@ jobs:
       review_json: ${{ steps.parse_review.outputs.review_json }}
 
     steps:
-      - name: Checkout base branch (IMPORTANT: criteria from base, not PR)
+      - name: "Checkout base branch (IMPORTANT: criteria from base, not PR)"
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.base.sha }}
