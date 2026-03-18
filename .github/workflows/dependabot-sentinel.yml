@@ -182,17 +182,24 @@ jobs:
           PACKAGE_NAME: ${{ needs.classify.outputs.package_name }}
           OLD_VERSION: ${{ needs.classify.outputs.old_version }}
           NEW_VERSION: ${{ needs.classify.outputs.new_version }}
+          CLASSIFICATION_JSON: ${{ needs.classify.outputs.classification_json }}
         run: |
           # Get the diff
           gh api /repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files \
             --jq '[.[] | {filename: .filename, patch: .patch, status: .status}]' \
             > /tmp/pr_diff.json
 
-          # Fetch release notes from PyPI / npm / GitHub depending on ecosystem
+          # Extract ecosystem from classification so we hit the right registry
+          ECOSYSTEM=$(echo "$CLASSIFICATION_JSON" | python3 -c \
+            "import json,sys; print(json.loads(sys.stdin.read()).get('ecosystem','auto'))")
+          echo "Fetching release notes for ecosystem: $ECOSYSTEM"
+
+          # Fetch release notes from the correct registry (PyPI, npm, crates.io, etc.)
           python3 scripts/fetch_release_notes.py \
             --package "$PACKAGE_NAME" \
             --old-version "$OLD_VERSION" \
             --new-version "$NEW_VERSION" \
+            --ecosystem "$ECOSYSTEM" \
             > /tmp/release_notes.txt 2>&1 || echo "Could not fetch release notes" > /tmp/release_notes.txt
 
       - name: Run Claude Code review
