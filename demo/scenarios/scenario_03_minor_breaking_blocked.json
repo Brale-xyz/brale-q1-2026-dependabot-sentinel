@@ -1,0 +1,27 @@
+{
+  "_description": "BLOCKED BY LLM — minor bump with breaking changes buried in release notes. Passes classify (not a critical dep, only manifests changed), but Claude should catch it. Expected: request_human_review.",
+  "pr_title": "Bump httpx from 0.25.2 to 0.26.0",
+  "pr_number": "44",
+  "bump_type": "minor",
+  "package_name": "httpx",
+  "old_version": "0.25.2",
+  "new_version": "0.26.0",
+  "ecosystem": "pip",
+  "changed_files": [
+    { "filename": "requirements.txt", "status": "modified" },
+    { "filename": "poetry.lock", "status": "modified" }
+  ],
+  "diff": [
+    {
+      "filename": "requirements.txt",
+      "status": "modified",
+      "patch": "@@ -3,7 +3,7 @@\n fastapi==0.109.0\n-httpx==0.25.2\n+httpx==0.26.0\n pydantic==2.5.3"
+    },
+    {
+      "filename": "poetry.lock",
+      "status": "modified",
+      "patch": "@@ -450,12 +450,12 @@\n [[package]]\n name = \"httpx\"\n-version = \"0.25.2\"\n+version = \"0.26.0\"\n description = \"The next generation HTTP client.\"\n optional = false\n python-versions = \">=3.8\"\n files = [\n-    {file = \"httpx-0.25.2-py3-none-any.whl\", hash = \"sha256:a05d3d052d9b2dfce0e3896636467f8a5342fb2b902c819428e1ac65413ca118\"},\n+    {file = \"httpx-0.26.0-py3-none-any.whl\", hash = \"sha256:b35d3d052d9b2dfce0e3896636467f8a5342fb2b902c819428e1ac65413ca118\"},"
+    }
+  ],
+  "release_notes": "# httpx 0.26.0 (2024-01-18)\n\n## Added\n- Added `proxy` parameter to `Client` and `AsyncClient` as the new standard way to configure proxies.\n\n## Changed\n- **The `proxies` parameter is now deprecated.** Use `proxy` instead. The old parameter will be removed in a future release.\n- Default timeout changed from `Timeout(5.0)` to `Timeout(5.0, connect=5.0)`. This changes the behavior of connect-phase timeouts in edge cases.\n- `Response.aclose()` now raises `RuntimeError` if called from a synchronous context. Previously this was silently ignored.\n\n## Fixed\n- Fixed memory leak in connection pool under high concurrency (#2271)\n\n## Migration\nIf you are using `proxies=` in your client initialization, update to `proxy=` before the next major release.\n"
+}

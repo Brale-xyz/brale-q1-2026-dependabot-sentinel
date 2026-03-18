@@ -1,0 +1,104 @@
+# Critical Dependencies — Always require human review
+#
+# Add packages here that should NEVER be auto-approved regardless of bump type.
+# Categories: auth, crypto, serialization, infrastructure, build tooling.
+#
+# Format:
+#   ecosystem:
+#     - package_name       # optional comment explaining why
+
+npm:
+  # Auth / identity
+  - jsonwebtoken
+  - passport
+  - passport-local
+  - passport-jwt
+  - next-auth
+  - auth0
+  - jose
+  - @auth0/nextjs-auth0
+
+  # Cryptography
+  - bcrypt
+  - bcryptjs
+  - argon2
+  - node-forge
+  - crypto-js
+  - tweetnacl
+
+  # Serialization / parsing (RCE risk surface)
+  - serialize-javascript
+  - js-yaml
+  - yaml
+  - xml2js
+  - fast-xml-parser
+  - node-serialize
+
+  # HTTP / networking
+  - axios          # large enough surface to warrant review
+  - got
+  - node-fetch
+
+  # Build / bundler core
+  - webpack
+  - vite
+  - esbuild
+  - rollup
+  - babel         # matches @babel/* too — add explicit entries as needed
+  - @babel/core
+
+  # ORM / database
+  - sequelize
+  - typeorm
+  - prisma
+  - mongoose
+  - knex
+
+pip:
+  # Auth / crypto
+  - cryptography
+  - pyjwt
+  - passlib
+  - bcrypt
+  - paramiko
+  - pyopenssl
+  - certifi        # CA bundle changes can affect TLS verification
+
+  # Serialization
+  - pyyaml
+  - ruamel.yaml
+  - lxml
+  - defusedxml
+  - marshmallow
+  - pydantic        # version bumps here can silently change validation behavior
+
+  # Web frameworks (minor bumps can introduce behavior changes)
+  - django
+  - flask
+  - fastapi
+  - starlette
+
+  # Infrastructure
+  - boto3           # AWS SDK — surface is enormous
+  - botocore
+  - google-cloud-storage
+  - azure-storage-blob
+
+go:
+  - golang.org/x/crypto
+  - golang.org/x/net
+  - github.com/golang-jwt/jwt
+  - github.com/dgrijalva/jwt-go
+  - golang.org/x/oauth2
+  - github.com/aws/aws-sdk-go-v2
+
+cargo:
+  - openssl
+  - rustls
+  - jsonwebtoken
+  - ring
+  - aws-sdk-s3
+
+# Add your own ecosystem packages below:
+# custom_ecosystem:
+#   - package_name

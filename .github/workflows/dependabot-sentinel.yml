@@ -1,0 +1,340 @@
+name: Dependabot Sentinel
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+# Only runs for dependabot PRs; everything else exits at the classify job.
+# Uses a dedicated bot token (SENTINEL_BOT_TOKEN) for the approval step —
+# never a personal PAT. Create a GitHub App and store its installation token
+# as that secret.
+
+jobs:
+  # ─────────────────────────────────────────────
+  # 1. CLASSIFY — deterministic, no LLM
+  # ─────────────────────────────────────────────
+  classify:
+    name: Classify PR
+    runs-on: ubuntu-latest
+    # Fast-exit if not dependabot
+    if: github.actor == 'dependabot[bot]'
+    outputs:
+      eligible: ${{ steps.classify.outputs.eligible }}
+      bump_type: ${{ steps.classify.outputs.bump_type }}
+      package_name: ${{ steps.classify.outputs.package_name }}
+      old_version: ${{ steps.classify.outputs.old_version }}
+      new_version: ${{ steps.classify.outputs.new_version }}
+      criteria_file: ${{ steps.classify.outputs.criteria_file }}
+      classification_json: ${{ steps.classify.outputs.classification_json }}
+
+    steps:
+      - name: Checkout base branch (criteria files come from here, NOT the PR)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+
+      - name: Verify dependabot commit signature
+        id: verify_sig
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Verify the commit was actually signed by GitHub (dependabot commits are)
+          VERIFIED=$(gh api /repos/${{ github.repository }}/commits/$PR_HEAD_SHA \
+            --jq '.commit.verification.verified')
+          SIGNER=$(gh api /repos/${{ github.repository }}/commits/$PR_HEAD_SHA \
+            --jq '.commit.verification.reason')
+          echo "Commit verified: $VERIFIED, reason: $SIGNER"
+          if [ "$VERIFIED" != "true" ]; then
+            echo "::warning::Commit is not verified. Routing to human review."
+            echo "sig_ok=false" >> $GITHUB_OUTPUT
+          else
+            echo "sig_ok=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Classify PR
+        id: classify
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          SIG_OK: ${{ steps.verify_sig.outputs.sig_ok }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 scripts/classify_pr.py \
+            --pr-title "$PR_TITLE" \
+            --pr-number "${{ github.event.pull_request.number }}" \
+            --repo "${{ github.repository }}" \
+            --base-sha "${{ github.event.pull_request.base.sha }}" \
+            --head-sha "$PR_HEAD_SHA" \
+            --sig-ok "$SIG_OK"
+
+  # ─────────────────────────────────────────────
+  # 2. WAIT FOR CI — don't review until tests pass
+  # ─────────────────────────────────────────────
+  wait_for_ci:
+    name: Wait for CI
+    needs: classify
+    if: needs.classify.outputs.eligible == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for required status checks
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          python3 - <<'EOF'
+          import subprocess, json, time, sys, os
+          repo = "${{ github.repository }}"
+          sha = os.environ["HEAD_SHA"]
+          token = os.environ["GH_TOKEN"]
+
+          # Poll for up to 20 minutes
+          deadline = time.time() + 1200
+          while time.time() < deadline:
+              result = subprocess.run(
+                  ["gh", "api", f"/repos/{repo}/commits/{sha}/check-runs",
+                   "--jq", "[.check_runs[] | select(.name != \"Dependabot Sentinel\")]"],
+                  capture_output=True, text=True, env={**os.environ}
+              )
+              checks = json.loads(result.stdout or "[]")
+              if not checks:
+                  print("No other checks found yet, waiting...")
+                  time.sleep(30)
+                  continue
+
+              statuses = [c["status"] for c in checks]
+              conclusions = [c.get("conclusion") for c in checks if c.get("conclusion")]
+
+              if any(c in ["failure", "cancelled", "timed_out"] for c in conclusions):
+                  print(f"CI failed: {conclusions}")
+                  sys.exit(1)
+
+              if all(s == "completed" for s in statuses):
+                  print("All CI checks passed.")
+                  sys.exit(0)
+
+              print(f"Waiting... statuses: {set(statuses)}")
+              time.sleep(30)
+
+          print("Timed out waiting for CI")
+          sys.exit(1)
+          EOF
+
+  # ─────────────────────────────────────────────
+  # 3. REVIEW — Claude Code with criteria files
+  # ─────────────────────────────────────────────
+  review:
+    name: Claude Code Review
+    needs: [classify, wait_for_ci]
+    if: needs.classify.outputs.eligible == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      decision: ${{ steps.parse_review.outputs.decision }}
+      confidence: ${{ steps.parse_review.outputs.confidence }}
+      review_json: ${{ steps.parse_review.outputs.review_json }}
+
+    steps:
+      - name: Checkout base branch (IMPORTANT: criteria from base, not PR)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+
+      - name: Install Claude Code
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Fetch PR diff and release notes
+        id: fetch_context
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PACKAGE_NAME: ${{ needs.classify.outputs.package_name }}
+          OLD_VERSION: ${{ needs.classify.outputs.old_version }}
+          NEW_VERSION: ${{ needs.classify.outputs.new_version }}
+        run: |
+          # Get the diff
+          gh api /repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files \
+            --jq '[.[] | {filename: .filename, patch: .patch, status: .status}]' \
+            > /tmp/pr_diff.json
+
+          # Fetch release notes from PyPI / npm / GitHub depending on ecosystem
+          python3 scripts/fetch_release_notes.py \
+            --package "$PACKAGE_NAME" \
+            --old-version "$OLD_VERSION" \
+            --new-version "$NEW_VERSION" \
+            > /tmp/release_notes.txt 2>&1 || echo "Could not fetch release notes" > /tmp/release_notes.txt
+
+      - name: Run Claude Code review
+        id: claude_review
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CRITERIA_FILE: ${{ needs.classify.outputs.criteria_file }}
+          CLASSIFICATION_JSON: ${{ needs.classify.outputs.classification_json }}
+        run: |
+          python3 scripts/run_claude_review.py \
+            --criteria-file ".github/review-criteria/$CRITERIA_FILE" \
+            --base-criteria ".github/review-criteria/_base.md" \
+            --policy-file ".github/review-criteria/_auto-approve-policy.md" \
+            --diff-file /tmp/pr_diff.json \
+            --release-notes /tmp/release_notes.txt \
+            --classification "$CLASSIFICATION_JSON" \
+            > /tmp/claude_review.json
+
+      - name: Parse review output
+        id: parse_review
+        run: |
+          python3 - <<'EOF'
+          import json, sys
+
+          with open("/tmp/claude_review.json") as f:
+              raw = f.read().strip()
+
+          # Extract JSON from Claude's response (it may be wrapped in markdown)
+          import re
+          json_match = re.search(r'\{[\s\S]*\}', raw)
+          if not json_match:
+              print("::error::Could not parse JSON from Claude review output")
+              print("decision=request_human_review", file=open("/dev/stdout", "a"))
+              sys.exit(0)
+
+          try:
+              review = json.loads(json_match.group())
+          except json.JSONDecodeError as e:
+              print(f"::error::JSON parse error: {e}")
+              # Default to human review on any parse failure
+              with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+                  f.write("decision=request_human_review\n")
+                  f.write("confidence=0.0\n")
+              sys.exit(0)
+
+          import os
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"decision={review.get('decision', 'request_human_review')}\n")
+              f.write(f"confidence={review.get('confidence', 0.0)}\n")
+              # Escape newlines for GitHub output
+              review_str = json.dumps(review).replace('%', '%25').replace('\n', '%0A')
+              f.write(f"review_json={review_str}\n")
+          EOF
+
+      - name: Upload review artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sentinel-review-${{ github.event.pull_request.number }}
+          path: /tmp/claude_review.json
+          retention-days: 90
+
+  # ─────────────────────────────────────────────
+  # 4. AUTO-APPROVE — gated, rate-limited
+  # ─────────────────────────────────────────────
+  auto_approve:
+    name: Auto-Approve
+    needs: [classify, review]
+    if: |
+      needs.classify.outputs.eligible == 'true' &&
+      needs.review.outputs.decision == 'approve' &&
+      needs.review.outputs.confidence >= '0.9'
+    runs-on: ubuntu-latest
+    environment: sentinel-auto-approve  # Requires environment protection rules
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+
+      - name: Rate limit check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 scripts/rate_limit_check.py \
+            --repo "${{ github.repository }}" \
+            --window-minutes 60 \
+            --max-approvals 10
+
+      - name: Approve PR
+        env:
+          # Use a dedicated bot token, NOT GITHUB_TOKEN (which can't self-approve)
+          # and NOT a personal PAT. Use a GitHub App installation token.
+          SENTINEL_BOT_TOKEN: ${{ secrets.SENTINEL_BOT_TOKEN }}
+          REVIEW_JSON: ${{ needs.review.outputs.review_json }}
+          CLASSIFICATION_JSON: ${{ needs.classify.outputs.classification_json }}
+        run: |
+          PR_NUMBER="${{ github.event.pull_request.number }}"
+          REPO="${{ github.repository }}"
+
+          # Parse summary from review
+          SUMMARY=$(echo "$REVIEW_JSON" | python3 -c "
+          import json, sys
+          r = json.loads(sys.stdin.read())
+          print(r.get('summary', 'Auto-approved by Dependabot Sentinel'))
+          ")
+
+          # Post approval with audit trail
+          curl -s -X POST \
+            -H "Authorization: token $SENTINEL_BOT_TOKEN" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/$REPO/pulls/$PR_NUMBER/reviews" \
+            -d "{
+              \"event\": \"APPROVE\",
+              \"body\": \"**Dependabot Sentinel Auto-Approval**\n\n${SUMMARY}\n\n<details><summary>Review details</summary>\n\n\`\`\`json\n${REVIEW_JSON}\n\`\`\`\n\n</details>\"
+            }"
+
+      - name: Enable auto-merge
+        env:
+          GH_TOKEN: ${{ secrets.SENTINEL_BOT_TOKEN }}
+        run: |
+          gh pr merge ${{ github.event.pull_request.number }} \
+            --auto \
+            --squash \
+            --repo ${{ github.repository }}
+
+      - name: Post audit comment
+        env:
+          GH_TOKEN: ${{ secrets.SENTINEL_BOT_TOKEN }}
+          REVIEW_JSON: ${{ needs.review.outputs.review_json }}
+          CLASSIFICATION_JSON: ${{ needs.classify.outputs.classification_json }}
+        run: |
+          python3 scripts/post_audit_comment.py \
+            --pr-number "${{ github.event.pull_request.number }}" \
+            --repo "${{ github.repository }}" \
+            --review-json "$REVIEW_JSON" \
+            --classification-json "$CLASSIFICATION_JSON"
+
+  # ─────────────────────────────────────────────
+  # 5. HUMAN REVIEW REQUEST — fallback
+  # ─────────────────────────────────────────────
+  request_human_review:
+    name: Request Human Review
+    needs: [classify, review]
+    if: |
+      always() && (
+        needs.classify.outputs.eligible == 'false' ||
+        needs.review.outputs.decision == 'request_human_review' ||
+        (needs.review.outputs.confidence != '' && needs.review.outputs.confidence < '0.9')
+      )
+    runs-on: ubuntu-latest
+    steps:
+      - name: Post human review request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REVIEW_JSON: ${{ needs.review.outputs.review_json }}
+          CLASSIFICATION_JSON: ${{ needs.classify.outputs.classification_json }}
+        run: |
+          REASON="Classification or review did not meet auto-approve criteria."
+
+          if [ -n "$REVIEW_JSON" ]; then
+            REASON=$(echo "$REVIEW_JSON" | python3 -c "
+          import json, sys
+          r = json.loads(sys.stdin.read())
+          concerns = r.get('concerns', [])
+          print('Sentinel concerns: ' + '; '.join(concerns) if concerns else r.get('summary', 'Needs human review'))
+          " 2>/dev/null || echo "Review output could not be parsed.")
+          fi
+
+          gh pr comment ${{ github.event.pull_request.number }} \
+            --repo ${{ github.repository }} \
+            --body "**Dependabot Sentinel:** This PR requires human review.
+
+          **Reason:** $REASON
+
+          cc @${{ github.repository_owner }}"
