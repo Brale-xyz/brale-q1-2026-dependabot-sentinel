@@ -99,9 +99,8 @@ jobs:
               )
               checks = json.loads(result.stdout or "[]")
               if not checks:
-                  print("No other checks found yet, waiting...")
-                  time.sleep(30)
-                  continue
+                  print("No other CI checks configured — proceeding to review.")
+                  sys.exit(0)
 
               statuses = [c["status"] for c in checks]
               conclusions = [c.get("conclusion") for c in checks if c.get("conclusion")]
