@@ -82,25 +82,45 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_BRANCH: ${{ github.event.pull_request.base.ref }}
         run: |
           python3 - <<'EOF'
           import subprocess, json, time, sys, os
           repo = "${{ github.repository }}"
           sha = os.environ["HEAD_SHA"]
-          token = os.environ["GH_TOKEN"]
+          base_branch = os.environ["BASE_BRANCH"]
+
+          # First: fetch the required status checks for this branch from protection rules.
+          # Only wait for checks that are REQUIRED — ignore optional / informational checks.
+          req_result = subprocess.run(
+              ["gh", "api",
+               f"/repos/{repo}/branches/{base_branch}/protection/required_status_checks",
+               "--jq", "[.contexts[] // empty]"],
+              capture_output=True, text=True, env={**os.environ}
+          )
+          required_contexts = json.loads(req_result.stdout or "[]")
+
+          if not required_contexts:
+              print("No required status checks configured — proceeding to review.")
+              sys.exit(0)
+
+          print(f"Waiting for required checks: {required_contexts}")
 
           # Poll for up to 20 minutes
           deadline = time.time() + 1200
           while time.time() < deadline:
               result = subprocess.run(
                   ["gh", "api", f"/repos/{repo}/commits/{sha}/check-runs",
-                   "--jq", "[.check_runs[] | select(.name | startswith(\"Dependabot Sentinel\") | not)]"],
+                   "--jq", "[.check_runs[] | select(.name as $n | $required | index($n) != null)]",
+                   "--argjson", "required", json.dumps(required_contexts)],
                   capture_output=True, text=True, env={**os.environ}
               )
               checks = json.loads(result.stdout or "[]")
               if not checks:
-                  print("No other CI checks configured — proceeding to review.")
-                  sys.exit(0)
+                  # Required checks haven't shown up yet; wait for them
+                  print("Required checks not yet queued, waiting...")
+                  time.sleep(30)
+                  continue
 
               statuses = [c["status"] for c in checks]
               conclusions = [c.get("conclusion") for c in checks if c.get("conclusion")]
@@ -110,7 +130,7 @@ jobs:
                   sys.exit(1)
 
               if all(s == "completed" for s in statuses):
-                  print("All CI checks passed.")
+                  print("All required CI checks passed.")
                   sys.exit(0)
 
               print(f"Waiting... statuses: {set(statuses)}")
