@@ -140,8 +140,8 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.base.sha }}
 
-      - name: Install Claude Code
-        run: npm install -g @anthropic-ai/claude-code
+      - name: Install Python dependencies
+        run: pip install anthropic pyyaml packaging
 
       - name: Fetch PR diff and release notes
         id: fetch_context
@@ -234,7 +234,7 @@ jobs:
       needs.review.outputs.decision == 'approve' &&
       needs.review.outputs.confidence >= '0.9'
     runs-on: ubuntu-latest
-    environment: sentinel-auto-approve  # Requires environment protection rules
+    # environment: sentinel-auto-approve  # Uncomment when on GitHub Team plan
 
     steps:
       - name: Checkout

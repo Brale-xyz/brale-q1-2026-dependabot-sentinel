@@ -1,0 +1,13 @@
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "daily"
+    # Only open one PR at a time so the Sentinel workflow isn't flooded
+    open-pull-requests-limit: 3
+    # Label PRs for easy filtering
+    labels:
+      - "dependencies"
+    commit-message:
+      prefix: "deps"

@@ -16,7 +16,7 @@ npm:
   - next-auth
   - auth0
   - jose
-  - @auth0/nextjs-auth0
+  - "@auth0/nextjs-auth0"
 
   # Cryptography
   - bcrypt
@@ -45,7 +45,7 @@ npm:
   - esbuild
   - rollup
   - babel         # matches @babel/* too — add explicit entries as needed
-  - @babel/core
+  - "@babel/core"
 
   # ORM / database
   - sequelize
@@ -85,12 +85,12 @@ pip:
   - azure-storage-blob
 
 go:
-  - golang.org/x/crypto
-  - golang.org/x/net
-  - github.com/golang-jwt/jwt
-  - github.com/dgrijalva/jwt-go
-  - golang.org/x/oauth2
-  - github.com/aws/aws-sdk-go-v2
+  - "golang.org/x/crypto"
+  - "golang.org/x/net"
+  - "github.com/golang-jwt/jwt"
+  - "github.com/dgrijalva/jwt-go"
+  - "golang.org/x/oauth2"
+  - "github.com/aws/aws-sdk-go-v2"
 
 cargo:
   - openssl
