@@ -381,8 +381,22 @@ jobs:
           CLASSIFICATION_JSON: ${{ needs.classify.outputs.classification_json }}
         run: |
           REASON="Classification or review did not meet auto-approve criteria."
+          BADGE=""
 
           if [ -n "$REVIEW_JSON" ]; then
+            BADGE=$(echo "$REVIEW_JSON" | python3 -c "
+          import json, sys
+          r = json.loads(sys.stdin.read())
+          confidence = float(r.get('confidence', 0))
+          pct = int(confidence * 100)
+          if confidence >= 0.9:   color = 'brightgreen'
+          elif confidence >= 0.7: color = 'yellow'
+          elif confidence >= 0.5: color = 'orange'
+          else:                   color = 'red'
+          url = f'https://img.shields.io/badge/sentinel%20confidence-{pct}%25-{color}?style=flat-square'
+          print(f'![sentinel confidence: {pct}%]({url})')
+          " 2>/dev/null || true)
+
             REASON=$(echo "$REVIEW_JSON" | python3 -c "
           import json, sys
           r = json.loads(sys.stdin.read())
@@ -405,7 +419,9 @@ jobs:
 
           gh pr comment ${{ github.event.pull_request.number }} \
             --repo ${{ github.repository }} \
-            --body "**Dependabot Sentinel:** This PR requires human review.
+            --body "${BADGE}
+
+          **Dependabot Sentinel:** This PR requires human review.
 
           **Reason:** $REASON
 

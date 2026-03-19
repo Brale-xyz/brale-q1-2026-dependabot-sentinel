@@ -13,6 +13,22 @@ import sys
 from datetime import datetime, timezone
 
 
+def confidence_badge(confidence: float) -> str:
+    """Generate a shields.io badge URL for the given confidence score (0.0–1.0)."""
+    pct = int(confidence * 100)
+    if confidence >= 0.9:
+        color = "brightgreen"
+    elif confidence >= 0.7:
+        color = "yellow"
+    elif confidence >= 0.5:
+        color = "orange"
+    else:
+        color = "red"
+    # shields.io static badge: spaces → %20, literal % → %25 in value
+    url = f"https://img.shields.io/badge/sentinel%20confidence-{pct}%25-{color}?style=flat-square"
+    return f"![sentinel confidence: {pct}%]({url})"
+
+
 def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--pr-number", required=True)
@@ -46,7 +62,11 @@ def main():
 
     concerns_md = "\n".join(f"  - {c}" for c in review.get("concerns", [])) or "  - None"
 
-    comment_body = f"""### 🤖 Dependabot Sentinel Audit Log
+    badge = confidence_badge(float(review.get("confidence", 0)))
+
+    comment_body = f"""{badge}
+
+### 🤖 Dependabot Sentinel Audit Log
 
 **Decision:** `{review.get('decision', 'unknown')}` | **Confidence:** `{review.get('confidence', 0):.2f}`
 **Timestamp:** {now}
