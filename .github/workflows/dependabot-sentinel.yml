@@ -352,14 +352,18 @@ jobs:
               \"body\": \"**Dependabot Sentinel Auto-Approval**\n\n${SUMMARY}\n\n<details><summary>Review details</summary>\n\n\`\`\`json\n${REVIEW_JSON}\n\`\`\`\n\n</details>\"
             }"
 
-      - name: Enable auto-merge
+      - name: Merge PR
         env:
           GH_TOKEN: ${{ secrets.SENTINEL_BOT_TOKEN }}
         run: |
+          # Direct squash merge — no --auto flag, which requires branch protection
+          # rules + "Allow auto-merge" in repo settings (not configured here).
+          # The approval already posted above; this completes the merge.
           gh pr merge ${{ github.event.pull_request.number }} \
-            --auto \
             --squash \
-            --repo ${{ github.repository }}
+            --repo ${{ github.repository }} \
+            --subject "deps: auto-merge by Dependabot Sentinel" \
+            --delete-branch
 
       - name: Post audit comment
         env:
