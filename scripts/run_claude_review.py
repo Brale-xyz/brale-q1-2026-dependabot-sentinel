@@ -13,6 +13,7 @@ import json
 import os
 import re
 import sys
+import time
 from pathlib import Path
 
 import anthropic
@@ -169,14 +170,46 @@ Remember: respond with ONLY the JSON object. No prose. No markdown fencing.
 def call_claude(prompt: str) -> str:
     client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
 
-    message = client.messages.create(
-        model="claude-opus-4-6",   # Use Opus for highest accuracy on security reviews
-        max_tokens=2048,
-        system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0,             # Deterministic output
-    )
-    return message.content[0].text
+    max_attempts = 4
+    base_delay = 15  # seconds
+
+    for attempt in range(1, max_attempts + 1):
+        try:
+            message = client.messages.create(
+                model="claude-opus-4-6",   # Use Opus for highest accuracy on security reviews
+                max_tokens=2048,
+                system=SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0,             # Deterministic output
+            )
+            return message.content[0].text
+
+        except anthropic.APIStatusError as e:
+            # 529 = overloaded, 529/500/503 are all transient — retry with backoff
+            if e.status_code in (529, 500, 503) and attempt < max_attempts:
+                delay = base_delay * (2 ** (attempt - 1))  # 15s, 30s, 60s
+                print(
+                    f"::warning::Anthropic API returned {e.status_code} (attempt {attempt}/{max_attempts}). "
+                    f"Retrying in {delay}s...",
+                    file=sys.stderr,
+                )
+                time.sleep(delay)
+                continue
+            raise  # Non-retryable or out of attempts
+
+        except anthropic.APIConnectionError as e:
+            if attempt < max_attempts:
+                delay = base_delay * (2 ** (attempt - 1))
+                print(
+                    f"::warning::Anthropic API connection error (attempt {attempt}/{max_attempts}). "
+                    f"Retrying in {delay}s: {e}",
+                    file=sys.stderr,
+                )
+                time.sleep(delay)
+                continue
+            raise
+
+    raise RuntimeError("Exhausted all retry attempts calling Anthropic API")
 
 
 def extract_json(text: str) -> dict:
