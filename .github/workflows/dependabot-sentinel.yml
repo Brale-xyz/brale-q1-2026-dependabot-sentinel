@@ -202,25 +202,38 @@ jobs:
             --ecosystem "$ECOSYSTEM" \
             > /tmp/release_notes.txt 2>&1 || echo "Could not fetch release notes" > /tmp/release_notes.txt
 
-          # Collect repo application source for code impact analysis.
-          # Excludes: workflow files, criteria docs, scripts (sentinel's own code),
-          # lockfiles, and hidden dirs. Capped at 100 files to bound prompt size.
-          find . -type f \( \
-            -name "*.py" -o -name "*.ts" -o -name "*.js" -o -name "*.rb" \
-            -o -name "*.go" -o -name "*.rs" -o -name "*.java" -o -name "*.kt" \
-            -o -name "*.ex" -o -name "*.exs" \
-          \) \
-            -not -path "./.github/*" \
-            -not -path "./scripts/*" \
-            -not -path "./node_modules/*" \
-            -not -path "./.venv/*" \
-            -not -path "./vendor/*" \
-            -not -path "./.git/*" \
-            | sort | head -100 \
-            | xargs -I{} sh -c 'echo "=== {} ==="; cat "{}"' 2>/dev/null \
-            > /tmp/repo_source.txt || true
+          # Collect repo source + Python version declarations for code impact analysis.
+          # Includes: all application source files + version config files so Claude
+          # can verify which Python versions the project actually targets.
+          # Capped at 100 source files to bound prompt size.
+          {
+            # Python version / project config files — critical for evaluating
+            # "dropped Python 3.x support" concerns
+            for f in .python-version pyproject.toml setup.cfg setup.py tox.ini .tool-versions; do
+              [ -f "$f" ] && echo "=== $f ===" && cat "$f"
+            done
+
+            # CI workflow files — show which Python versions are tested
+            find .github/workflows -name "*.yml" -o -name "*.yaml" 2>/dev/null \
+              | grep -v dependabot-sentinel \
+              | xargs -I{} sh -c 'echo "=== {} ==="; cat "{}"' 2>/dev/null || true
+
+            # Application source files (all languages, excluding sentinel internals)
+            find . -type f \( \
+              -name "*.py" -o -name "*.ts" -o -name "*.js" -o -name "*.rb" \
+              -o -name "*.go" -o -name "*.rs" -o -name "*.java" -o -name "*.kt" \
+              -o -name "*.ex" -o -name "*.exs" \
+            \) \
+              -not -path "./.github/*" \
+              -not -path "./node_modules/*" \
+              -not -path "./.venv/*" \
+              -not -path "./vendor/*" \
+              -not -path "./.git/*" \
+              | sort | head -100 \
+              | xargs -I{} sh -c 'echo "=== {} ==="; cat "{}"' 2>/dev/null || true
+          } > /tmp/repo_source.txt
           SOURCE_LINES=$(wc -l < /tmp/repo_source.txt)
-          echo "Collected ${SOURCE_LINES} lines of source code for impact analysis"
+          echo "Collected ${SOURCE_LINES} lines of source + config for impact analysis"
 
       - name: Run Claude Code review
         id: claude_review
