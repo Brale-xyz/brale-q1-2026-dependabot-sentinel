@@ -18,11 +18,13 @@ more scrutiny here. Confidence thresholds are harder to reach.
 
 ## Additional MUST FAIL
 
-- [ ] Release notes contain any of: `BREAKING`, `deprecated`, `removed`, `migration`, `upgrade guide`, `no longer supported`
-- [ ] Release notes describe changes to default behavior (even if framed as improvements)
+- [ ] Release notes contain any of: `BREAKING`, `deprecated`, `removed`, `migration`, `upgrade guide`, `no longer supported` — UNLESS repository source code confirms the affected APIs are not used in our codebase (apply the same code impact exception as in `_base.md`)
+- [ ] Release notes describe changes to default behavior (even if framed as improvements) — UNLESS one of:
+  - (a) Repository source code confirms our code does not invoke the affected behavior (e.g., we never call the function whose default changed), OR
+  - (b) The behavioral change was introduced AND fully reverted within the same version bump range — when jumping directly from version A to version Z, intermediate versions are never installed; if a behavior was added in A+1 and reverted in Z, the net delta from A to Z is zero for that behavior. Document this explicitly in `code_impact.mitigated`.
 - [ ] New required peer dependencies are introduced
 - [ ] The minor version is a `0.x` release (e.g., 0.3.0 → 0.4.0): semver guarantees do NOT apply for pre-1.0 packages — route to human
-- [ ] The package is a framework, ORM, auth library, or infrastructure tool — minor bumps for these always require human review (check `critical-dependencies.yml`)
+- [ ] The package is a framework, ORM, auth library, or infrastructure tool — minor bumps for these always require human review (check `critical-dependencies.yml`) — UNLESS all individual concerns are mitigated by code impact analysis and confidence reaches 0.9
 
 ## Additional INSPECT
 

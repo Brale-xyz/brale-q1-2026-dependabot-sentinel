@@ -29,6 +29,19 @@ You will be given:
 2. The PR diff (changed files)
 3. Release notes for the version range
 4. Classification metadata (package name, version bump, ecosystem)
+5. Repository source code (when available) for code impact analysis
+
+Key reasoning rules:
+- When evaluating a bump from version A to version Z, only the NET delta from A to Z matters.
+  Intermediate versions (A+1, A+2, ..., Z-1) are never installed. If a behavior or feature was
+  introduced in an intermediate version and then FULLY REVERTED before Z, the net effect is zero
+  and it must NOT count as a concern. Explicitly add it to code_impact.mitigated.
+- When release notes mention deprecated or removed APIs, check the provided source code.
+  If the affected API does not appear in our codebase, add it to code_impact.mitigated and
+  do NOT let it block approval.
+- Python version support drops (e.g., "dropped Python 3.7") are only relevant if our project
+  targets that Python version. Check .python-version, pyproject.toml, or CI config in the
+  provided source. If our project targets a higher version, add it to code_impact.mitigated.
 
 You MUST respond with ONLY a JSON object matching the schema in the base criteria.
 Do NOT include any prose, explanation, or markdown fencing outside the JSON.
