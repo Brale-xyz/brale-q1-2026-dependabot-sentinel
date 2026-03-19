@@ -45,6 +45,8 @@ def parse_args():
     p.add_argument("--diff-file", required=True)
     p.add_argument("--release-notes", required=True)
     p.add_argument("--classification", required=True)
+    p.add_argument("--source-file", default=None,
+                   help="Concatenated repo source files for code impact analysis")
     return p.parse_args()
 
 
@@ -77,6 +79,29 @@ def build_prompt(args) -> str:
     MAX_NOTES_CHARS = 10000
     if len(release_notes) > MAX_NOTES_CHARS:
         release_notes = release_notes[:MAX_NOTES_CHARS] + f"\n[TRUNCATED — original length: {len(release_notes)} chars]"
+
+    # Load repo source for code impact analysis
+    source_section = ""
+    if args.source_file:
+        source_code = read_file_safe(args.source_file)
+        MAX_SOURCE_CHARS = 15000
+        if len(source_code) > MAX_SOURCE_CHARS:
+            source_code = source_code[:MAX_SOURCE_CHARS] + f"\n[TRUNCATED — original length: {len(source_code)} chars]"
+        if source_code.strip() and not source_code.startswith("[Could not read"):
+            source_section = f"""---
+
+## Repository Source Code (for code impact analysis)
+
+The following is the application source code of this repository. For each concern you identify about deprecated, removed, or changed APIs:
+1. Search this source code for the specific function/class/pattern names mentioned
+2. If found: add to `code_impact.affected` with the file path and matching pattern
+3. If not found: add to `code_impact.mitigated` with a clear note that it is not used in our code
+4. Set `breaking_changes_not_used_in_our_code` to `true` if ALL breaking change concerns are mitigated (not found in source), `false` if any are found, `null` if there are no breaking change concerns
+
+```
+{source_code}
+```
+"""
 
     prompt = f"""
 ## Auto-Approve Policy
@@ -121,6 +146,7 @@ def build_prompt(args) -> str:
 
 ---
 
+{source_section}
 Now review this PR according to all criteria above and respond with the JSON decision object.
 Remember: respond with ONLY the JSON object. No prose. No markdown fencing.
 """

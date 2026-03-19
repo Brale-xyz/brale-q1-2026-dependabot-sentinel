@@ -5,5 +5,5 @@
 requests==2.31.0
 httpx==0.25.2
 pydantic==2.5.3
-certifi==2023.11.17
+certifi==2024.2.2
 urllib3==2.1.0

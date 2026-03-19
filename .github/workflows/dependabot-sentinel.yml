@@ -202,6 +202,26 @@ jobs:
             --ecosystem "$ECOSYSTEM" \
             > /tmp/release_notes.txt 2>&1 || echo "Could not fetch release notes" > /tmp/release_notes.txt
 
+          # Collect repo application source for code impact analysis.
+          # Excludes: workflow files, criteria docs, scripts (sentinel's own code),
+          # lockfiles, and hidden dirs. Capped at 100 files to bound prompt size.
+          find . -type f \( \
+            -name "*.py" -o -name "*.ts" -o -name "*.js" -o -name "*.rb" \
+            -o -name "*.go" -o -name "*.rs" -o -name "*.java" -o -name "*.kt" \
+            -o -name "*.ex" -o -name "*.exs" \
+          \) \
+            -not -path "./.github/*" \
+            -not -path "./scripts/*" \
+            -not -path "./node_modules/*" \
+            -not -path "./.venv/*" \
+            -not -path "./vendor/*" \
+            -not -path "./.git/*" \
+            | sort | head -100 \
+            | xargs -I{} sh -c 'echo "=== {} ==="; cat "{}"' 2>/dev/null \
+            > /tmp/repo_source.txt || true
+          SOURCE_LINES=$(wc -l < /tmp/repo_source.txt)
+          echo "Collected ${SOURCE_LINES} lines of source code for impact analysis"
+
       - name: Run Claude Code review
         id: claude_review
         env:
@@ -216,6 +236,7 @@ jobs:
             --diff-file /tmp/pr_diff.json \
             --release-notes /tmp/release_notes.txt \
             --classification "$CLASSIFICATION_JSON" \
+            --source-file /tmp/repo_source.txt \
             > /tmp/claude_review.json
 
       - name: Parse review output
@@ -366,7 +387,19 @@ jobs:
           import json, sys
           r = json.loads(sys.stdin.read())
           concerns = r.get('concerns', [])
-          print('Sentinel concerns: ' + '; '.join(concerns) if concerns else r.get('summary', 'Needs human review'))
+          impact = r.get('code_impact', {})
+          mitigated = impact.get('mitigated', [])
+          affected = impact.get('affected', [])
+
+          parts = []
+          if concerns:
+              parts.append('**Concerns:** ' + '; '.join(concerns))
+          if mitigated:
+              parts.append('**Not used in our code (mitigated):** ' + '; '.join(mitigated))
+          if affected:
+              hits = [f\"{a['concern']} — found in: {', '.join(m['file'] for m in a.get('matches', []))}\" for a in affected]
+              parts.append('**Breaking changes found in our code:** ' + '; '.join(hits))
+          print('\n\n'.join(parts) if parts else r.get('summary', 'Needs human review'))
           " 2>/dev/null || echo "Review output could not be parsed.")
           fi
 
