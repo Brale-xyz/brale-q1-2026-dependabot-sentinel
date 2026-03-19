@@ -10,8 +10,8 @@ on:
 # as that secret.
 
 permissions:
-  contents: read
-  pull-requests: write
+  contents: write      # needed for the auto_approve job to merge PRs
+  pull-requests: write # needed to post comments and approve PRs
 
 jobs:
   # ─────────────────────────────────────────────
@@ -354,11 +354,11 @@ jobs:
 
       - name: Merge PR
         env:
-          GH_TOKEN: ${{ secrets.SENTINEL_BOT_TOKEN }}
+          # Use GITHUB_TOKEN (contents: write) for the merge itself.
+          # Approval above used SENTINEL_BOT_TOKEN (a different account) to avoid
+          # self-approval; merge doesn't have that constraint.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Direct squash merge — no --auto flag, which requires branch protection
-          # rules + "Allow auto-merge" in repo settings (not configured here).
-          # The approval already posted above; this completes the merge.
           gh pr merge ${{ github.event.pull_request.number }} \
             --squash \
             --repo ${{ github.repository }} \
