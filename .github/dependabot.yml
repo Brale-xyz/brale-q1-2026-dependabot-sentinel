@@ -4,7 +4,7 @@ updates:
     directory: "/"
     schedule:
       interval: "daily"
-    # Only open one PR at a time so the Sentinel workflow isn't flooded
-    open-pull-requests-limit: 3
+    # Enough headroom for all demo target packages
+    open-pull-requests-limit: 10
     commit-message:
       prefix: "deps"
