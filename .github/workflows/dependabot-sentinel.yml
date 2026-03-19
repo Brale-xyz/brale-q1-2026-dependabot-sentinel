@@ -401,6 +401,7 @@ jobs:
           BADGE=""
 
           if [ -n "$REVIEW_JSON" ]; then
+            # Claude ran — show confidence badge and detailed concerns
             BADGE=$(echo "$REVIEW_JSON" | python3 -c "
           import json, sys
           r = json.loads(sys.stdin.read())
@@ -432,6 +433,23 @@ jobs:
               parts.append('**Breaking changes found in our code:** ' + '; '.join(hits))
           print('\n\n'.join(parts) if parts else r.get('summary', 'Needs human review'))
           " 2>/dev/null || echo "Review output could not be parsed.")
+
+          elif [ -n "$CLASSIFICATION_JSON" ]; then
+            # Claude was skipped — PR was blocked at classify. Show why.
+            REASON=$(echo "$CLASSIFICATION_JSON" | python3 -c "
+          import json, sys
+          c = json.loads(sys.stdin.read())
+          reasons = c.get('ineligible_reasons', [])
+          pkg = c.get('package_name', 'this package')
+          bump = c.get('bump_type', '')
+          old_v = c.get('old_version', '')
+          new_v = c.get('new_version', '')
+          if reasons:
+              print(f'**Blocked at classification** ({old_v} → {new_v}): ' + '; '.join(reasons))
+          else:
+              print(f'**Blocked at classification**: {pkg} {old_v} → {new_v} did not meet eligibility criteria')
+          " 2>/dev/null || echo "Classification output could not be parsed.")
+            BADGE="![sentinel confidence: blocked](https://img.shields.io/badge/sentinel-blocked%20at%20classify-lightgrey?style=flat-square)"
           fi
 
           gh pr comment ${{ github.event.pull_request.number }} \
