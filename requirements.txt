@@ -10,4 +10,4 @@ urllib3==2.1.0
 
 # charset-normalizer: pure encoding-detection utility, CalVer-free, clean releases.
 # Pinned at 3.3.2 so dependabot proposes a 3.x minor bump — good auto-approve test case.
-charset-normalizer==3.4.6
+charset-normalizer==3.4.7
