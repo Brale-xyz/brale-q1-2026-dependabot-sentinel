@@ -6,7 +6,7 @@ requests==2.31.0
 httpx==0.25.2
 pydantic==2.5.3
 certifi==2024.2.2
-urllib3==2.1.0
+urllib3==2.6.3
 
 # charset-normalizer: pure encoding-detection utility, CalVer-free, clean releases.
 # Pinned at 3.3.2 so dependabot proposes a 3.x minor bump — good auto-approve test case.
